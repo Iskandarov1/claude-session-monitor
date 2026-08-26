@@ -18,7 +18,10 @@
 - Registry path: `<claudeHome>/sessions`; transcripts: `<claudeHome>/projects/<slug>/<sessionId>.jsonl`; `claudeHome` = `$CLAUDE_CONFIG_DIR` or `~/.claude`.
 - Bridge command (spec §5.5): `claude -p --input-format stream-json --output-format stream-json --verbose --model haiku --allowedTools SendMessage,ListAgents --no-session-persistence -n csm-bridge --system-prompt <text>`; the child env MUST have `CLAUDE_CODE_MESSAGING_SOCKET`, `CLAUDE_CODE_MESSAGING_TOKEN`, `CLAUDE_CODE_CHILD_SESSION`, `CLAUDE_CODE_SESSION_ID` removed.
 - Session states are exactly `'working' | 'idle' | 'waiting' | 'ended'`; `waiting` threshold is 20 s (spec §5.4). The design sheets label two states differently: mockup **Blocked** is this plan's `waiting`, and mockup **Completed** is `ended`. Mockup **Failed** has no reliable signal and is not implemented (spec §5.4) — never add a `failed` state.
-- Dark theme only. Tokens (spec §7 / design 2a): background `oklch(0.145 0 0)`, panel `oklch(0.205 0 0)`, raised `oklch(0.269 0 0)`, fg `oklch(0.985 0 0)`, fg-soft `oklch(0.87 0 0)`, muted `oklch(0.708 0 0)`, faint `oklch(0.556 0 0)`, border `rgba(255,255,255,.1)`, input-border `rgba(255,255,255,.15)`, primary `oklch(0.922 0 0)` on `oklch(0.205 0 0)`; accents: working `#34d399`, waiting `#fbbf24`, ended `#60a5fa`, error `#f87171`, cross-session `#a78bfa` (text `#c4b5fd`), claude `#d97757`.
+- **Design system source: `/Users/iskandarov/Downloads/ui-main`** — the shadcn/ui v4 monorepo, checked out locally (no network, no CLI needed). Primitives are vendored by copying files from `apps/v4/registry/new-york-v4/ui/` in Task 1a; tokens come from its `apps/v4/app/globals.css` `.dark` block. Never re-implement a primitive this repo already provides, and never rename a shadcn token.
+- Dark theme only, using **shadcn's own variable names** so vendored components work unmodified (spec §3.0). From ui-main's `.dark` block: `--background: oklch(0.145 0 0)`, `--card`/`--popover`/`--sidebar`: `oklch(0.205 0 0)`, `--secondary`/`--muted`: `oklch(0.269 0 0)`, `--foreground: oklch(0.985 0 0)`, `--muted-foreground: oklch(0.708 0 0)`, `--accent: oklch(0.371 0 0)`, `--border: oklch(1 0 0 / 10%)`, `--input: oklch(1 0 0 / 15%)`, `--ring: oklch(0.556 0 0)`, `--primary: oklch(0.922 0 0)`, `--primary-foreground: oklch(0.205 0 0)`, `--surface: oklch(0.2 0 0)`.
+- App-only tokens the design needs and shadcn has no name for: `--body: oklch(0.87 0 0)` (Claude message text), `--faint: oklch(0.556 0 0)` (timestamps/labels), and accents `--working #34d399`, `--waiting #fbbf24`, `--ended #60a5fa`, `--error #f87171`, `--cross #a78bfa`, `--cross-fg #c4b5fd`, `--claude #d97757`.
+- shadcn v4 imports the **unified `radix-ui` package** (`import { Popover as PopoverPrimitive } from "radix-ui"`), NOT `@radix-ui/react-*`. Pin `radix-ui@^1.4.3`, `cmdk@^1.1.1`, `class-variance-authority@^0.7.1`, `lucide-react`, `tailwind-merge@^3`, `clsx@^2` to match ui-main's `apps/v4/package.json`.
 - Fonts: Geist / Geist Mono from the `geist` npm package (bundled, never fetched at runtime), fallback `system-ui, sans-serif` / `ui-monospace, monospace`.
 - Commit after every task with a conventional-commit message; never push.
 - Every command in this plan runs from the repo root `~/maydon/claude-session-monitor`.
@@ -48,7 +51,9 @@
 | `src/main/index.ts` | app lifecycle and wiring |
 | `src/preload/index.ts` | `window.csm` typed API |
 | `src/renderer/index.html`, `src/renderer/src/main.tsx`, `App.tsx` | renderer entry |
-| `src/renderer/src/styles/globals.css` | tokens, fonts, base styles |
+| `src/renderer/src/styles/globals.css` | shadcn `.dark` tokens (from ui-main) + app accents, fonts, base styles |
+| `src/renderer/src/components/ui/*.tsx`, `src/renderer/src/lib/utils.ts` | shadcn primitives vendored from ui-main — never hand-edited |
+| `scripts/vendor-shadcn.sh`, `components.json` | repeatable copy from the ui-main checkout |
 | `src/renderer/src/store.ts` | zustand store + IPC subscriptions |
 | `src/renderer/src/lib/format.ts` | time/path formatting helpers |
 | `src/renderer/src/components/*` | one file per UI region (see spec §7 table) |
@@ -60,7 +65,7 @@
 ### Task 1: Project scaffold
 
 **Files:**
-- Create: `package.json`, `electron.vite.config.ts`, `tsconfig.json`, `vitest.config.ts`, `.gitignore`, `src/main/index.ts`, `src/preload/index.ts`, `src/renderer/index.html`, `src/renderer/src/main.tsx`, `src/renderer/src/App.tsx`, `src/renderer/src/styles/globals.css`, `tests/smoke.test.ts`
+- Create: `package.json`, `electron.vite.config.ts`, `tsconfig.json`, `vitest.config.ts`, `.gitignore`, `src/main/index.ts`, `src/preload/index.ts`, `src/renderer/index.html`, `src/renderer/src/main.tsx`, `src/renderer/src/App.tsx`, `src/renderer/src/styles/globals.css` (placeholder — Task 1a replaces it), `tests/smoke.test.ts`
 
 **Interfaces:**
 - Produces: npm scripts `dev`, `build`, `test`, `typecheck`; path aliases `@shared/*`, `@main/*`, `@renderer/*`.
@@ -90,7 +95,8 @@
 Run:
 ```bash
 npm install --save-dev electron electron-vite vite @vitejs/plugin-react typescript @types/node @types/react @types/react-dom vitest jsdom @testing-library/react @testing-library/jest-dom @testing-library/user-event electron-builder tailwindcss @tailwindcss/vite
-npm install react react-dom zustand react-virtuoso chokidar clsx tailwind-merge lucide-react geist @radix-ui/react-dropdown-menu @radix-ui/react-dialog @radix-ui/react-context-menu @radix-ui/react-tooltip @radix-ui/react-popover
+npm install react react-dom zustand react-virtuoso chokidar geist \
+  radix-ui@^1.4.3 cmdk@^1.1.1 class-variance-authority@^0.7.1 lucide-react clsx@^2.1.1 tailwind-merge@^3.6.0
 ```
 Expected: `node_modules/` populated, no peer-dependency errors. (If `electron` postinstall fails behind a proxy, set `ELECTRON_MIRROR` and re-run.)
 
@@ -254,39 +260,23 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 `src/renderer/src/App.tsx`:
 ```tsx
 export default function App() {
-  return <div className="h-screen flex items-center justify-center text-fg">Claude Session Monitor</div>
+  return <div className="h-screen flex items-center justify-center text-foreground">Claude Session Monitor</div>
 }
 ```
 
-`src/renderer/src/styles/globals.css`:
+`src/renderer/src/styles/globals.css` — a placeholder; Task 1a replaces it with the full token set copied from ui-main:
 ```css
 @import "tailwindcss";
 
 @theme {
-  --color-bg: oklch(0.145 0 0);
-  --color-panel: oklch(0.205 0 0);
-  --color-raised: oklch(0.269 0 0);
-  --color-fg: oklch(0.985 0 0);
-  --color-fg-soft: oklch(0.87 0 0);
-  --color-muted: oklch(0.708 0 0);
-  --color-faint: oklch(0.556 0 0);
-  --color-border: rgba(255,255,255,.1);
-  --color-input: rgba(255,255,255,.15);
-  --color-primary: oklch(0.922 0 0);
-  --color-primary-fg: oklch(0.205 0 0);
-  --color-working: #34d399;
-  --color-waiting: #fbbf24;
-  --color-ended: #60a5fa;
-  --color-error: #f87171;
-  --color-cross: #a78bfa;
-  --color-cross-fg: #c4b5fd;
-  --color-claude: #d97757;
+  --color-background: oklch(0.145 0 0);
+  --color-foreground: oklch(0.985 0 0);
   --font-sans: "Geist", system-ui, sans-serif;
   --font-mono: "Geist Mono", ui-monospace, monospace;
 }
 
 html, body, #root { height: 100%; margin: 0; }
-body { background: var(--color-bg); color: var(--color-fg); font-family: var(--font-sans); font-size: 12.5px; -webkit-font-smoothing: antialiased; }
+body { background: var(--color-background); color: var(--color-foreground); font-family: var(--font-sans); font-size: 12.5px; -webkit-font-smoothing: antialiased; }
 ```
 
 - [ ] **Step 4: Write a smoke test**
@@ -321,6 +311,235 @@ Expected: a dark window titled "Claude Session Monitor" opens showing the center
 ```bash
 git add -A
 git commit -m "chore: scaffold electron-vite + react + tailwind + vitest"
+```
+
+---
+
+### Task 1a: Vendor shadcn/ui from the local `ui-main` checkout
+
+**Files:**
+- Create: `src/renderer/src/lib/utils.ts`, `src/renderer/src/components/ui/*.tsx` (13 files copied), `components.json`, `scripts/vendor-shadcn.sh`
+- Modify: `src/renderer/src/styles/globals.css` (full token set), `electron.vite.config.ts` (add `@/*` alias)
+- Test: `tests/renderer/vendored.test.tsx`
+
+**Interfaces:**
+- Produces: `cn(...)` at `@/lib/utils`; the shadcn components at `@/components/ui/<name>` — `Button`, `Input`, `Textarea`, `DropdownMenu*`, `Popover*`, `ContextMenu*`, `Command*`, `Separator`, `ScrollArea`, `Tooltip*`, `Kbd`, `Empty*`, `Badge`. Later tasks import these instead of touching `radix-ui` directly.
+
+**Why a script:** the copy must be repeatable (ui-main updates, a teammate re-runs it) and must not be a 13-step manual checklist. `SHADCN_SRC` is overridable so the path is not hard-coded in perpetuity.
+
+- [ ] **Step 1: Write the vendoring script**
+
+`scripts/vendor-shadcn.sh`:
+```bash
+#!/usr/bin/env bash
+# Copies shadcn/ui v4 primitives out of a local ui-main checkout into src/renderer/src/components/ui.
+# Usage: ./scripts/vendor-shadcn.sh [path-to-ui-main]
+set -euo pipefail
+
+SRC="${1:-${SHADCN_SRC:-/Users/iskandarov/Downloads/ui-main}}"
+REG="$SRC/apps/v4/registry/new-york-v4"
+DEST_UI="src/renderer/src/components/ui"
+DEST_LIB="src/renderer/src/lib"
+
+[ -d "$REG/ui" ] || { echo "error: $REG/ui not found — pass the path to the ui-main checkout"; exit 1; }
+
+COMPONENTS=(button input textarea dropdown-menu popover context-menu command separator scroll-area tooltip kbd empty badge)
+
+mkdir -p "$DEST_UI" "$DEST_LIB"
+cp "$REG/lib/utils.ts" "$DEST_LIB/utils.ts"
+for c in "${COMPONENTS[@]}"; do
+  [ -f "$REG/ui/$c.tsx" ] || { echo "error: missing $c.tsx in registry"; exit 1; }
+  cp "$REG/ui/$c.tsx" "$DEST_UI/$c.tsx"
+done
+
+echo "vendored ${#COMPONENTS[@]} components + lib/utils.ts from $SRC"
+grep -rl '@radix-ui/react-' "$DEST_UI" && echo "warning: a component imports @radix-ui/react-* — install it or re-check the source" || true
+```
+
+Run:
+```bash
+chmod +x scripts/vendor-shadcn.sh && ./scripts/vendor-shadcn.sh
+```
+Expected: `vendored 13 components + lib/utils.ts from /Users/iskandarov/Downloads/ui-main`, no warning line. Verify the import style is the unified package:
+```bash
+grep -h 'from "radix-ui"' src/renderer/src/components/ui/*.tsx | head -3
+```
+Expected: lines like `import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui"`. If instead they say `@radix-ui/react-*`, the checkout is an older shadcn version — install those individual packages and note it here.
+
+- [ ] **Step 2: Add the `@/*` alias the vendored files use**
+
+The copied files import `@/lib/utils`. Add to the `alias` object in `electron.vite.config.ts` **and** to `paths` in `tsconfig.json` **and** to `resolve.alias` in `vitest.config.ts`:
+```ts
+'@': resolve(__dirname, 'src/renderer/src'),
+```
+```json
+"@/*": ["src/renderer/src/*"]
+```
+
+Also create `components.json` so a future `npx shadcn add` lands in the same place:
+```json
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "style": "new-york",
+  "rsc": false,
+  "tsx": true,
+  "tailwind": { "config": "", "css": "src/renderer/src/styles/globals.css", "baseColor": "neutral", "cssVariables": true },
+  "aliases": { "components": "@/components", "utils": "@/lib/utils", "ui": "@/components/ui" }
+}
+```
+
+- [ ] **Step 3: Install the full token set**
+
+Replace `src/renderer/src/styles/globals.css` entirely. The `@theme inline` block maps Tailwind color utilities onto the CSS variables; the `:root` block holds ui-main's `.dark` values verbatim (this app is dark-only, so they live on `:root` rather than `.dark`), followed by the app-only tokens:
+
+```css
+@import "tailwindcss";
+
+@font-face { font-family: "Geist"; src: url("../assets/fonts/Geist.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: "Geist Mono"; src: url("../assets/fonts/GeistMono.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+
+:root {
+  /* verbatim from ui-main apps/v4/app/globals.css `.dark` */
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.371 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.58 0.22 27);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --surface: oklch(0.2 0 0);
+  --surface-foreground: oklch(0.708 0 0);
+  --selection: oklch(0.922 0 0);
+  --selection-foreground: oklch(0.205 0 0);
+  --radius: 0.625rem;
+
+  /* app-only: no shadcn equivalent (spec §3.0) */
+  --body: oklch(0.87 0 0);
+  --faint: oklch(0.556 0 0);
+  --working: #34d399;
+  --waiting: #fbbf24;
+  --ended: #60a5fa;
+  --error: #f87171;
+  --cross: #a78bfa;
+  --cross-fg: #c4b5fd;
+  --claude: #d97757;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-surface: var(--surface);
+  --color-surface-foreground: var(--surface-foreground);
+  --color-body: var(--body);
+  --color-faint: var(--faint);
+  --color-working: var(--working);
+  --color-waiting: var(--waiting);
+  --color-ended: var(--ended);
+  --color-error: var(--error);
+  --color-cross: var(--cross);
+  --color-cross-fg: var(--cross-fg);
+  --color-claude: var(--claude);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+  --font-sans: "Geist", system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+@keyframes csm-pulse { 0%, 100% { opacity: 1 } 50% { opacity: .35 } }
+@keyframes csm-blink { 0%, 49% { opacity: 1 } 50%, 100% { opacity: 0 } }
+
+@layer utilities {
+  .animate-pulse-dot { animation: csm-pulse 1.6s ease-in-out infinite; }
+  .animate-blink { animation: csm-blink 1s step-end infinite; }
+  .drag { -webkit-app-region: drag; }
+  .no-drag { -webkit-app-region: no-drag; }
+}
+
+html, body, #root { height: 100%; margin: 0; }
+body { background: var(--background); color: var(--foreground); font-family: var(--font-sans); font-size: 12.5px; -webkit-font-smoothing: antialiased; overflow: hidden; }
+* { scrollbar-width: thin; scrollbar-color: oklch(1 0 0 / 15%) transparent; }
+::selection { background: var(--selection); color: var(--selection-foreground); }
+```
+
+Note: this supersedes the Task 11 Step 2 CSS — when you reach Task 11, its font `@font-face` and utilities are already here; only add the fonts themselves (Task 11 Step 1).
+
+- [ ] **Step 4: Write a test that the vendored components render with the tokens**
+
+`tests/renderer/vendored.test.tsx`:
+```tsx
+// @vitest-environment jsdom
+import { describe, it, expect } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import { Button } from '@/components/ui/button'
+import { Kbd } from '@/components/ui/kbd'
+import { Badge } from '@/components/ui/badge'
+import { cn } from '@/lib/utils'
+
+describe('vendored shadcn primitives', () => {
+  it('cn merges and dedupes tailwind classes', () => {
+    expect(cn('p-2', 'p-4')).toBe('p-4')
+    expect(cn('text-foreground', false && 'hidden')).toBe('text-foreground')
+  })
+  it('Button renders with the primary token classes', () => {
+    render(<Button>Send</Button>)
+    const b = screen.getByRole('button', { name: 'Send' })
+    expect(b.className).toMatch(/bg-primary/)
+    expect(b.className).toMatch(/text-primary-foreground/)
+  })
+  it('Button variants and sizes exist', () => {
+    render(<Button variant="outline" size="sm">Retry</Button>)
+    expect(screen.getByRole('button', { name: 'Retry' }).className).toMatch(/border/)
+  })
+  it('Kbd and Badge render', () => {
+    render(<><Kbd>⌘⏎</Kbd><Badge>LOCAL</Badge></>)
+    expect(screen.getByText('⌘⏎')).toBeInTheDocument()
+    expect(screen.getByText('LOCAL')).toBeInTheDocument()
+  })
+})
+```
+
+- [ ] **Step 5: Run it**
+
+Run: `npx vitest run tests/renderer/vendored.test.tsx && npm run typecheck`
+Expected: 4 passed; exit 0. A TS error about `@/lib/utils` means Step 2's alias is missing from one of the three config files.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add -A
+git commit -m "chore: vendor shadcn/ui v4 primitives and tokens from local ui-main"
 ```
 
 ---
@@ -2886,7 +3105,7 @@ git commit -m "feat: ipc surface, preload api, window, and main wiring"
 
 **Interfaces:**
 - Consumes: `CsmApi`, `PUSH`, all shared types (Task 2).
-- Produces: `cn(...)`, `hhmm(ts)`, `relTime(ts, now?)`, `cwdTail(cwd)`, `shortTokens(n)`, `stateLabel(session, now?)`, `STATE_COLOR: Record<SessionState, string>` (hex), `firstLine(text, max?)`; `applyUpdates(events, updates)` (renderer copy); `useStore` zustand hook with the `AppState` below; `installMockCsm()` for tests; CSS utility classes `.animate-pulse-dot`, `.animate-blink`, `.drag`, `.no-drag`.
+- Produces: re-export of `cn` (defined in `@/lib/utils`, Task 1a), `hhmm(ts)`, `relTime(ts, now?)`, `cwdTail(cwd)`, `shortTokens(n)`, `stateLabel(session, now?)`, `STATE_COLOR: Record<SessionState, string>` (hex), `firstLine(text, max?)`; `applyUpdates(events, updates)` (renderer copy); `useStore` zustand hook with the `AppState` below; `installMockCsm()` for tests. (The `.animate-pulse-dot` / `.animate-blink` / `.drag` / `.no-drag` utilities and every token come from Task 1a's `globals.css`.)
 
 - [ ] **Step 1: Bundle the fonts**
 
@@ -2901,53 +3120,16 @@ cp "$MONO" src/renderer/src/assets/fonts/GeistMono.woff2
 ```
 Expected: both paths print non-empty and the two files exist. If `find` prints nothing, download `Geist-Variable.woff2` / `GeistMono-Variable.woff2` from the `vercel/geist-font` GitHub release assets into the same folder with the same names; the fallback stacks keep the UI working meanwhile.
 
-- [ ] **Step 2: Finish globals.css**
+- [ ] **Step 2: Confirm globals.css (written in Task 1a)**
 
-Replace `src/renderer/src/styles/globals.css` with:
-```css
-@import "tailwindcss";
+Task 1a installed the complete token set and utilities. Verify, do not rewrite:
 
-@font-face { font-family: "Geist"; src: url("../assets/fonts/Geist.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
-@font-face { font-family: "Geist Mono"; src: url("../assets/fonts/GeistMono.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
-
-@theme {
-  --color-bg: oklch(0.145 0 0);
-  --color-panel: oklch(0.205 0 0);
-  --color-raised: oklch(0.269 0 0);
-  --color-fg: oklch(0.985 0 0);
-  --color-fg-soft: oklch(0.87 0 0);
-  --color-muted: oklch(0.708 0 0);
-  --color-faint: oklch(0.556 0 0);
-  --color-border: rgba(255,255,255,.1);
-  --color-input: rgba(255,255,255,.15);
-  --color-primary: oklch(0.922 0 0);
-  --color-primary-fg: oklch(0.205 0 0);
-  --color-working: #34d399;
-  --color-waiting: #fbbf24;
-  --color-ended: #60a5fa;
-  --color-error: #f87171;
-  --color-cross: #a78bfa;
-  --color-cross-fg: #c4b5fd;
-  --color-claude: #d97757;
-  --font-sans: "Geist", system-ui, sans-serif;
-  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-
-@keyframes csm-pulse { 0%, 100% { opacity: 1 } 50% { opacity: .35 } }
-@keyframes csm-blink { 0%, 49% { opacity: 1 } 50%, 100% { opacity: 0 } }
-
-@layer utilities {
-  .animate-pulse-dot { animation: csm-pulse 1.6s ease-in-out infinite; }
-  .animate-blink { animation: csm-blink 1s step-end infinite; }
-  .drag { -webkit-app-region: drag; }
-  .no-drag { -webkit-app-region: no-drag; }
-}
-
-html, body, #root { height: 100%; margin: 0; }
-body { background: var(--color-bg); color: var(--color-fg); font-family: var(--font-sans); font-size: 12.5px; -webkit-font-smoothing: antialiased; overflow: hidden; }
-* { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.15) transparent; }
-::selection { background: rgba(255,255,255,.2); }
+```bash
+grep -c -- '--color-' src/renderer/src/styles/globals.css   # >= 28
+grep -c 'animate-pulse-dot\|animate-blink\|\.drag' src/renderer/src/styles/globals.css   # 3
+grep -c '@font-face' src/renderer/src/styles/globals.css   # 2
 ```
+Expected: `28` or more, then `3`, then `2`. If any is short, re-run Task 1a Step 3 — that step owns this file; never maintain a second copy of the tokens here.
 
 - [ ] **Step 3: Write the failing format tests**
 
@@ -2996,11 +3178,10 @@ describe('format', () => {
 
 `src/renderer/src/lib/format.ts`:
 ```ts
-import { clsx, type ClassValue } from 'clsx'
-import { twMerge } from 'tailwind-merge'
 import type { Session, SessionState } from '@shared/types'
 
-export const cn = (...xs: ClassValue[]) => twMerge(clsx(xs))
+// `cn` lives in the vendored shadcn helper (Task 1a); re-exported here so UI files have one import site.
+export { cn } from '@/lib/utils'
 
 export function hhmm(ts: number): string {
   const d = new Date(ts)
@@ -3328,16 +3509,16 @@ export default function App() {
   const init = useStore((s) => s.init)
   const ready = useStore((s) => s.ready)
   useEffect(() => { void init() }, [init])
-  if (!ready) return <div className="h-full flex items-center justify-center text-muted">Loading…</div>
+  if (!ready) return <div className="h-full flex items-center justify-center text-muted-foreground">Loading…</div>
   return (
-    <div className="h-full flex flex-col bg-bg">
-      <div id="titlebar" className="h-10 shrink-0 border-b border-border bg-panel" />
+    <div className="h-full flex flex-col bg-background">
+      <div id="titlebar" className="h-10 shrink-0 border-b border-border bg-card" />
       <div className="flex-1 min-h-0 flex">
-        <aside id="sidebar" className={cn('w-[236px] shrink-0 border-r border-border flex flex-col', isMac() ? 'bg-panel' : 'bg-bg')} />
-        <main id="center" className="flex-1 min-w-0 flex flex-col bg-bg" />
-        <aside id="relay" className="w-[292px] shrink-0 border-l border-border bg-panel flex flex-col" />
+        <aside id="sidebar" className={cn('w-[236px] shrink-0 border-r border-border flex flex-col', isMac() ? 'bg-card' : 'bg-background')} />
+        <main id="center" className="flex-1 min-w-0 flex flex-col bg-background" />
+        <aside id="relay" className="w-[292px] shrink-0 border-l border-border bg-card flex flex-col" />
       </div>
-      <div id="statusbar" className="h-7 shrink-0 border-t border-border bg-panel" />
+      <div id="statusbar" className="h-7 shrink-0 border-t border-border bg-card" />
     </div>
   )
 }
@@ -3468,19 +3649,19 @@ import { StatusDot } from './StatusDot'
 
 export function SessionRow({ session, selected, multi, onSelect, onPin }: { session: Session; selected: boolean; multi: boolean; onSelect: (e: MouseEvent) => void; onPin: () => void }) {
   const label = stateLabel(session)
-  const labelColor = session.state === 'waiting' ? 'text-waiting' : session.state === 'ended' ? 'text-faint' : 'text-muted'
+  const labelColor = session.state === 'waiting' ? 'text-waiting' : session.state === 'ended' ? 'text-faint' : 'text-muted-foreground'
   return (
-    <div className={cn('group relative flex items-center gap-2 px-2 py-[5px] rounded-md cursor-default', (selected || multi) && 'bg-raised', multi && 'ring-1 ring-cross/50')}>
+    <div className={cn('group relative flex items-center gap-2 px-2 py-[5px] rounded-md cursor-default', (selected || multi) && 'bg-secondary', multi && 'ring-1 ring-cross/50')}>
       <button aria-label={`select ${session.name}`} onClick={onSelect} className="absolute inset-0 rounded-md" />
       <StatusDot state={session.state} />
       <div className="flex-1 min-w-0 pointer-events-none">
-        <div className={cn('font-medium text-[12px] truncate', selected ? 'text-fg' : session.state === 'idle' || session.state === 'ended' ? 'text-muted' : 'text-fg-soft')}>{session.name}</div>
+        <div className={cn('font-medium text-[12px] truncate', selected ? 'text-foreground' : session.state === 'idle' || session.state === 'ended' ? 'text-muted-foreground' : 'text-body')}>{session.name}</div>
         <div className={cn('font-mono text-[10px] truncate group-hover:hidden', labelColor)}>{label}</div>
-        <div className="font-mono text-[10px] truncate text-muted hidden group-hover:block">{cwdTail(session.cwd)}</div>
+        <div className="font-mono text-[10px] truncate text-muted-foreground hidden group-hover:block">{cwdTail(session.cwd)}</div>
       </div>
-      <span className="relative font-mono font-semibold text-[8.5px] text-muted border border-border rounded px-1 group-hover:hidden">{session.origin.toUpperCase()}</span>
+      <span className="relative font-mono font-semibold text-[8.5px] text-muted-foreground border border-border rounded px-1 group-hover:hidden">{session.origin.toUpperCase()}</span>
       <button aria-label={session.pinned ? 'unpin' : 'pin'} onClick={(e) => { e.stopPropagation(); onPin() }}
-        className={cn('relative hidden group-hover:block text-[11px] leading-none px-1', session.pinned ? 'text-fg' : 'text-muted hover:text-fg')}>★</button>
+        className={cn('relative hidden group-hover:block text-[11px] leading-none px-1', session.pinned ? 'text-foreground' : 'text-muted-foreground hover:text-foreground')}>★</button>
     </div>
   )
 }
@@ -3488,26 +3669,26 @@ export function SessionRow({ session, selected, multi, onSelect, onPin }: { sess
 
 `src/renderer/src/components/NewSessionPopover.tsx`:
 ```tsx
-import * as Popover from '@radix-ui/react-popover'
 import { useState } from 'react'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 
 /** v1 does not spawn terminals: it hands the user a ready-to-paste `claude -n <name>` command. */
 export function NewSessionPopover() {
   const [name, setName] = useState('')
   const cmd = `claude -n ${name.trim() || '<name>'}`
   return (
-    <Popover.Root>
-      <Popover.Trigger className="text-[10.5px] text-muted hover:text-fg">+ New</Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content side="top" align="end" className="w-64 rounded-lg border border-border bg-panel p-3 shadow-xl text-[11.5px] space-y-2">
-          <div className="text-fg font-medium">Start a named session</div>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="session name" className="w-full h-7 rounded-md bg-bg border border-input px-2 text-fg outline-none" />
-          <code className="block font-mono text-[10.5px] text-muted bg-bg rounded px-2 py-1 truncate">{cmd}</code>
-          <button className="h-7 w-full rounded-md bg-primary text-primary-fg font-semibold text-[11px]" onClick={() => void navigator.clipboard.writeText(cmd)}>Copy command</button>
-          <div className="text-faint text-[10px]">Run it in a terminal; the session appears here automatically.</div>
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+    <Popover>
+      <PopoverTrigger className="text-[10.5px] text-muted-foreground hover:text-foreground">+ New</PopoverTrigger>
+      <PopoverContent side="top" align="end" className="w-64 space-y-2 text-[11.5px]">
+        <div className="text-foreground font-medium">Start a named session</div>
+        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="session name" className="h-7" />
+        <code className="block font-mono text-[10.5px] text-muted-foreground bg-background rounded px-2 py-1 truncate">{cmd}</code>
+        <Button size="sm" className="w-full" onClick={() => void navigator.clipboard.writeText(cmd)}>Copy command</Button>
+        <div className="text-faint text-[10px]">Run it in a terminal; the session appears here automatically.</div>
+      </PopoverContent>
+    </Popover>
   )
 }
 ```
@@ -3541,9 +3722,9 @@ export function Sidebar() {
   return (
     <>
       <div className="p-[10px] pb-[6px]">
-        <div className="flex items-center gap-2 h-[26px] rounded-md bg-bg border border-input px-2">
-          <span className="text-muted text-[11px]">⌕</span>
-          <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter sessions" className="flex-1 bg-transparent outline-none text-[11.5px] text-fg placeholder:text-muted" />
+        <div className="flex items-center gap-2 h-[26px] rounded-md bg-background border border-input px-2">
+          <span className="text-muted-foreground text-[11px]">⌕</span>
+          <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter sessions" className="flex-1 bg-transparent outline-none text-[11.5px] text-foreground placeholder:text-muted-foreground" />
         </div>
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto px-[6px] flex flex-col gap-[1px]">
@@ -3559,7 +3740,7 @@ export function Sidebar() {
           {all.length === 0 && pinned.length === 0 && <div className="px-2 py-4 text-[11px] text-faint">No sessions{filter ? ' match' : ' yet — start one with claude'}</div>}
         </div>
       </div>
-      <div className="mt-auto px-3 py-2 border-t border-border flex items-center text-[10.5px] text-muted">
+      <div className="mt-auto px-3 py-2 border-t border-border flex items-center text-[10.5px] text-muted-foreground">
         <span>{total} session{total === 1 ? '' : 's'}</span>
         <span className="ml-auto"><NewSessionPopover /></span>
       </div>
@@ -3741,15 +3922,15 @@ import { useState } from 'react'
 export function CodeBlock({ code, title }: { code: string; title?: string }) {
   const [open, setOpen] = useState(true)
   return (
-    <div className="mt-[7px] rounded-lg border border-border bg-[oklch(0.2_0_0)] overflow-hidden">
-      <div className="flex items-center px-[11px] py-[5px] border-b border-border font-mono text-[10px] text-muted">
+    <div className="mt-[7px] rounded-lg border border-border bg-surface overflow-hidden">
+      <div className="flex items-center px-[11px] py-[5px] border-b border-border font-mono text-[10px] text-muted-foreground">
         <span className="truncate">{title ?? 'code'}</span>
         <span className="ml-auto text-faint flex gap-2">
-          <button className="hover:text-fg" onClick={() => void navigator.clipboard.writeText(code)}>Copy</button>
-          <button className="hover:text-fg" onClick={() => setOpen((o) => !o)}>{open ? 'Collapse' : 'Expand'}</button>
+          <button className="hover:text-foreground" onClick={() => void navigator.clipboard.writeText(code)}>Copy</button>
+          <button className="hover:text-foreground" onClick={() => setOpen((o) => !o)}>{open ? 'Collapse' : 'Expand'}</button>
         </span>
       </div>
-      {open && <pre className="m-0 px-[13px] py-[10px] font-mono text-[11.5px] leading-[1.55] text-fg-soft overflow-x-auto whitespace-pre">{code}</pre>}
+      {open && <pre className="m-0 px-[13px] py-[10px] font-mono text-[11.5px] leading-[1.55] text-body overflow-x-auto whitespace-pre">{code}</pre>}
     </div>
   )
 }
@@ -3763,7 +3944,7 @@ export function MessageUser({ text, ts }: { text: string; ts: number }) {
   return (
     <div className="self-end max-w-[68%]">
       <div className="flex justify-end gap-2 font-mono text-[10px] text-faint mb-[3px]"><span>You</span><span>{hhmm(ts)}</span></div>
-      <div className="bg-raised rounded-[10px_10px_3px_10px] px-3 py-2 text-[12.5px] leading-[1.5] text-fg whitespace-pre-wrap">{text}</div>
+      <div className="bg-secondary rounded-[10px_10px_3px_10px] px-3 py-2 text-[12.5px] leading-[1.5] text-foreground whitespace-pre-wrap">{text}</div>
     </div>
   )
 }
@@ -3780,7 +3961,7 @@ export function MessageClaude({ text, ts }: { text: string; ts: number }) {
     <div className="max-w-[82%]">
       <div className="flex gap-2 font-mono text-[10px] text-faint mb-[3px]"><span className="text-claude">✳ Claude</span><span>{hhmm(ts)}</span></div>
       {splitRich(text).map((p, i) => p.type === 'text'
-        ? <div key={i} className="text-[12.5px] leading-[1.55] text-fg-soft whitespace-pre-wrap">{p.text}</div>
+        ? <div key={i} className="text-[12.5px] leading-[1.55] text-body whitespace-pre-wrap">{p.text}</div>
         : <CodeBlock key={i} code={p.code} title={p.lang} />)}
     </div>
   )
@@ -3800,8 +3981,8 @@ export function MessageCross({ fromName, text, ts, onReply, onJump }: { fromName
       </div>
       <div className="border-l-[3px] border-cross bg-cross/[.06] rounded-r-lg px-3 py-2 text-[12.5px] leading-[1.5] text-cross-fg whitespace-pre-wrap">{text}</div>
       <div className="text-[10px] text-faint mt-[2px] flex gap-2">
-        <button className="hover:text-fg" onClick={onReply}>Reply</button>
-        {onJump && <button className="hover:text-fg" onClick={onJump}>Jump to sender ↗</button>}
+        <button className="hover:text-foreground" onClick={onReply}>Reply</button>
+        {onJump && <button className="hover:text-foreground" onClick={onJump}>Jump to sender ↗</button>}
       </div>
     </div>
   )
@@ -3823,15 +4004,15 @@ export function MessageTool({ name, input, resultText, isError }: { name: string
   const [open, setOpen] = useState(false)
   return (
     <div className="max-w-[82%]">
-      <button onClick={() => setOpen((o) => !o)} className={cn('flex items-center gap-2 font-mono text-[10.5px] text-faint hover:text-muted', isError && 'text-error')}>
+      <button onClick={() => setOpen((o) => !o)} className={cn('flex items-center gap-2 font-mono text-[10.5px] text-faint hover:text-muted-foreground', isError && 'text-error')}>
         <span>{open ? '▾' : '▸'}</span>
         <span className="truncate">{summary(name, input)}</span>
         <span className="text-faint">{resultText === undefined ? '· running' : isError ? '· error' : '· done'}</span>
       </button>
       {open && (
-        <div className="mt-1 rounded-lg border border-border bg-[oklch(0.2_0_0)] p-2 font-mono text-[10.5px] text-muted space-y-2">
+        <div className="mt-1 rounded-lg border border-border bg-surface p-2 font-mono text-[10.5px] text-muted-foreground space-y-2">
           <pre className="m-0 whitespace-pre-wrap break-all">{JSON.stringify(input, null, 2)}</pre>
-          {resultText !== undefined && <pre className="m-0 whitespace-pre-wrap break-all text-fg-soft border-t border-border pt-2">{resultText.length > 4000 ? resultText.slice(0, 4000) + '…' : resultText}</pre>}
+          {resultText !== undefined && <pre className="m-0 whitespace-pre-wrap break-all text-body border-t border-border pt-2">{resultText.length > 4000 ? resultText.slice(0, 4000) + '…' : resultText}</pre>}
         </div>
       )}
     </div>
@@ -3857,7 +4038,7 @@ export function MessageSent({ to, text, ts }: { to: string[]; text: string; ts: 
 ```tsx
 export function SystemRow({ text }: { text: string }) {
   const clean = text.replace(/<[^>]+>/g, '').trim() || text
-  return <div className="self-center font-mono text-[10.5px] text-faint bg-raised/40 border border-border rounded-md px-[11px] py-[3px]">{clean}</div>
+  return <div className="self-center font-mono text-[10.5px] text-faint bg-secondary/40 border border-border rounded-md px-[11px] py-[3px]">{clean}</div>
 }
 ```
 
@@ -3883,7 +4064,7 @@ export function StreamingIndicator({ tokens }: { tokens: number }) {
   return (
     <div className="max-w-[82%]">
       <div className="flex gap-2 font-mono text-[10px] text-faint mb-[3px]"><span className="text-claude">✳ Claude</span><span>now</span></div>
-      <div className="text-[12.5px] text-fg-soft">Working<span className="inline-block w-[7px] h-[13px] bg-claude ml-[3px] align-[-2px] animate-blink" /></div>
+      <div className="text-[12.5px] text-body">Working<span className="inline-block w-[7px] h-[13px] bg-claude ml-[3px] align-[-2px] animate-blink" /></div>
       <div className="flex items-center gap-[7px] mt-[5px] font-mono text-[10px] text-faint"><span className="w-[5px] h-[5px] rounded-full bg-working animate-pulse-dot" />streaming · {shortTokens(tokens)} tokens</div>
     </div>
   )
@@ -3896,7 +4077,7 @@ export function StreamingIndicator({ tokens }: { tokens: number }) {
 ```tsx
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
-import * as ContextMenu from '@radix-ui/react-context-menu'
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu'
 import type { TranscriptEvent } from '@shared/types'
 import { useStore, useSelected } from '../store'
 import { nearestIndex } from '../lib/events'
@@ -3979,24 +4160,22 @@ export function Transcript() {
       <Virtuoso ref={ref} data={items} className="h-full" atBottomStateChange={setAtBottom} followOutput={atBottom ? 'smooth' : false} initialTopMostItemIndex={Math.max(0, items.length - 1)}
         computeItemKey={(_, e) => e.id}
         itemContent={(_, e) => (
-          <ContextMenu.Root>
-            <ContextMenu.Trigger asChild>
+          <ContextMenu>
+            <ContextMenuTrigger asChild>
               <div className="px-5 py-[5px] flex flex-col">{render(e)}</div>
-            </ContextMenu.Trigger>
+            </ContextMenuTrigger>
             {e.kind !== 'streaming' && (
-              <ContextMenu.Portal>
-                <ContextMenu.Content className="min-w-40 rounded-md border border-border bg-panel p-1 text-[11.5px] shadow-xl">
-                  <ContextMenu.Item className="px-2 py-1 rounded hover:bg-raised outline-none" onSelect={() => void navigator.clipboard.writeText(textOf(e))}>Copy</ContextMenu.Item>
-                  <ContextMenu.Item className="px-2 py-1 rounded hover:bg-raised outline-none" onSelect={() => void addBookmark({ sessionId: session.sessionId, eventId: e.id, ts: e.ts, preview: firstLine(textOf(e), 80) })}>Bookmark</ContextMenu.Item>
-                  {e.kind === 'cross' && senderId(e.fromName) && <ContextMenu.Item className="px-2 py-1 rounded hover:bg-raised outline-none" onSelect={() => jump({ sessionId: senderId(e.fromName)!, ts: e.ts })}>Jump to sender</ContextMenu.Item>}
-                </ContextMenu.Content>
-              </ContextMenu.Portal>
+              <ContextMenuContent className="min-w-40 text-[11.5px]">
+                <ContextMenuItem onSelect={() => void navigator.clipboard.writeText(textOf(e))}>Copy</ContextMenuItem>
+                <ContextMenuItem onSelect={() => void addBookmark({ sessionId: session.sessionId, eventId: e.id, ts: e.ts, preview: firstLine(textOf(e), 80) })}>Bookmark</ContextMenuItem>
+                {e.kind === 'cross' && senderId(e.fromName) && <ContextMenuItem onSelect={() => jump({ sessionId: senderId(e.fromName)!, ts: e.ts })}>Jump to sender</ContextMenuItem>}
+              </ContextMenuContent>
             )}
-          </ContextMenu.Root>
+          </ContextMenu>
         )} />
       {!atBottom && pending > 0 && (
         <button onClick={() => ref.current?.scrollToIndex({ index: items.length - 1, align: 'end', behavior: 'smooth' })}
-          className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-primary text-primary-fg text-[11px] font-semibold px-3 py-1 shadow">↓ {pending} new</button>
+          className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-primary text-primary-foreground text-[11px] font-semibold px-3 py-1 shadow">↓ {pending} new</button>
       )}
     </div>
   )
@@ -4018,7 +4197,7 @@ export function SessionHeader() {
     <div className="h-[50px] shrink-0 border-b border-border flex items-center gap-3 px-[18px]">
       <div>
         <div className="flex items-center gap-2">
-          <span className="font-semibold text-[14px] text-fg">{session.name}</span>
+          <span className="font-semibold text-[14px] text-foreground">{session.name}</span>
           <span className="inline-flex items-center gap-[5px] font-mono font-medium text-[10px] rounded-full px-[7px] py-[1px] border" style={{ color, background: `${color}1a`, borderColor: `${color}40` }}>
             <StatusDot state={session.state} size={5} />{session.state.toUpperCase()}
           </span>
@@ -4026,8 +4205,8 @@ export function SessionHeader() {
         <div className="font-mono text-[10.5px] text-faint mt-[1px]">{cwdTail(session.cwd)} · {session.model ?? '—'} · started {hhmm(session.startedAt)}{session.aiTitle ? ` · ${session.aiTitle}` : ''}</div>
       </div>
       <div className="ml-auto flex gap-[6px]">
-        <button aria-label="export markdown" onClick={() => void window.csm.exportTranscript(session.sessionId)} className="h-6 px-[9px] rounded-md border border-border text-[11px] font-medium text-muted hover:text-fg">Export .md</button>
-        <button aria-label={session.pinned ? 'unpin session' : 'pin session'} onClick={() => void togglePin(session.sessionId)} className={cn('h-6 px-[9px] rounded-md border border-border text-[11px] font-medium', session.pinned ? 'text-fg bg-raised' : 'text-muted hover:text-fg')}>★ {session.pinned ? 'Pinned' : 'Pin'}</button>
+        <button aria-label="export markdown" onClick={() => void window.csm.exportTranscript(session.sessionId)} className="h-6 px-[9px] rounded-md border border-border text-[11px] font-medium text-muted-foreground hover:text-foreground">Export .md</button>
+        <button aria-label={session.pinned ? 'unpin session' : 'pin session'} onClick={() => void togglePin(session.sessionId)} className={cn('h-6 px-[9px] rounded-md border border-border text-[11px] font-medium', session.pinned ? 'text-foreground bg-secondary' : 'text-muted-foreground hover:text-foreground')}>★ {session.pinned ? 'Pinned' : 'Pin'}</button>
       </div>
     </div>
   )
@@ -4038,7 +4217,7 @@ export function SessionHeader() {
 
 Replace the empty `<main id="center" …/>` with:
 ```tsx
-<main id="center" className="flex-1 min-w-0 flex flex-col bg-bg">
+<main id="center" className="flex-1 min-w-0 flex flex-col bg-background">
   <SessionHeader />
   <Transcript />
 </main>
@@ -4187,7 +4366,8 @@ export function BridgeStatusChip({ state }: { state: BridgeState }) {
 
 `src/renderer/src/components/TargetPicker.tsx`:
 ```tsx
-import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { Badge } from '@/components/ui/badge'
 import { useStore, useTargets } from '../store'
 
 export function TargetPicker() {
@@ -4200,12 +4380,12 @@ export function TargetPicker() {
 
   if (multiIds.length > 1) {
     return (
-      <div className="rounded-md bg-bg border border-input px-[9px] py-[6px]">
-        <div className="text-[10.5px] text-muted mb-1">Send to · multiple</div>
+      <div className="rounded-md bg-background border border-input px-[9px] py-[6px]">
+        <div className="text-[10.5px] text-muted-foreground mb-1">Send to · multiple</div>
         <div className="flex flex-wrap gap-1">
           {multiIds.map((id) => (
-            <span key={id} className="inline-flex items-center gap-1 rounded-full bg-raised text-[10.5px] text-fg px-2 py-[1px]">{name(id)}
-              <button aria-label={`remove ${name(id)}`} className="text-muted hover:text-fg" onClick={() => setMulti(multiIds.filter((x) => x !== id))}>✕</button></span>
+            <Badge key={id} variant="secondary" className="gap-1 text-[10.5px] font-normal">{name(id)}
+              <button aria-label={`remove ${name(id)}`} className="text-muted-foreground hover:text-foreground" onClick={() => setMulti(multiIds.filter((x) => x !== id))}>✕</button></Badge>
           ))}
           <AddMenu exclude={multiIds} onPick={(id) => setMulti([...multiIds, id])} options={live} />
         </div>
@@ -4213,20 +4393,18 @@ export function TargetPicker() {
     )
   }
   return (
-    <DropdownMenu.Root>
-      <DropdownMenu.Trigger className="flex items-center gap-2 h-7 w-full rounded-md bg-bg border border-input px-[9px] text-left">
-        <span className="text-[10.5px] text-muted">Send to</span>
-        <span className="text-[11.5px] font-medium text-fg truncate">{targets[0] ? name(targets[0]) : '—'}</span>
-        <span className="ml-auto text-muted text-[10px]">▾</span>
-      </DropdownMenu.Trigger>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content align="start" className="min-w-[260px] rounded-md border border-border bg-panel p-1 text-[11.5px] shadow-xl">
-          {live.map((s) => <DropdownMenu.Item key={s.sessionId} className="px-2 py-1 rounded hover:bg-raised outline-none" onSelect={() => useStore.getState().select(s.sessionId)}>{s.name}</DropdownMenu.Item>)}
-          <DropdownMenu.Separator className="my-1 h-px bg-border" />
-          <DropdownMenu.Item className="px-2 py-1 rounded hover:bg-raised outline-none text-muted" onSelect={() => setMulti(live.map((s) => s.sessionId))}>All sessions</DropdownMenu.Item>
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
-    </DropdownMenu.Root>
+    <DropdownMenu>
+      <DropdownMenuTrigger className="flex items-center gap-2 h-7 w-full rounded-md bg-background border border-input px-[9px] text-left">
+        <span className="text-[10.5px] text-muted-foreground">Send to</span>
+        <span className="text-[11.5px] font-medium text-foreground truncate">{targets[0] ? name(targets[0]) : '—'}</span>
+        <span className="ml-auto text-muted-foreground text-[10px]">▾</span>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="min-w-[260px] text-[11.5px]">
+        {live.map((s) => <DropdownMenuItem key={s.sessionId} onSelect={() => useStore.getState().select(s.sessionId)}>{s.name}</DropdownMenuItem>)}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem className="text-muted-foreground" onSelect={() => setMulti(live.map((s) => s.sessionId))}>All sessions</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -4234,14 +4412,12 @@ function AddMenu({ exclude, onPick, options }: { exclude: string[]; onPick: (id:
   const rest = options.filter((o) => !exclude.includes(o.sessionId))
   if (!rest.length) return null
   return (
-    <DropdownMenu.Root>
-      <DropdownMenu.Trigger className="rounded-full border border-border text-[10.5px] text-muted px-2 py-[1px] hover:text-fg">+ add</DropdownMenu.Trigger>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content className="min-w-[200px] rounded-md border border-border bg-panel p-1 text-[11.5px] shadow-xl">
-          {rest.map((o) => <DropdownMenu.Item key={o.sessionId} className="px-2 py-1 rounded hover:bg-raised outline-none" onSelect={() => onPick(o.sessionId)}>{o.name}</DropdownMenu.Item>)}
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
-    </DropdownMenu.Root>
+    <DropdownMenu>
+      <DropdownMenuTrigger className="rounded-full border border-border text-[10.5px] text-muted-foreground px-2 py-[1px] hover:text-foreground">+ add</DropdownMenuTrigger>
+      <DropdownMenuContent className="min-w-[200px] text-[11.5px]">
+        {rest.map((o) => <DropdownMenuItem key={o.sessionId} onSelect={() => onPick(o.sessionId)}>{o.name}</DropdownMenuItem>)}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 ```
@@ -4249,7 +4425,10 @@ function AddMenu({ exclude, onPick, options }: { exclude: string[]; onPick: (id:
 `src/renderer/src/components/RelayPanel.tsx`:
 ```tsx
 import { useState, type KeyboardEvent } from 'react'
-import * as Popover from '@radix-ui/react-popover'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
+import { Kbd } from '@/components/ui/kbd'
 import type { RelayResult } from '@shared/types'
 import { useStore, useTargets } from '../store'
 import { cn, modKey } from '../lib/format'
@@ -4296,35 +4475,33 @@ export function RelayPanel() {
   return (
     <div className="flex flex-col h-full">
       <div className="px-3 pt-3 flex flex-col gap-2">
-        <div className="flex items-center gap-2"><span className="font-semibold text-[11.5px] text-fg">Prompt relay</span><span className="ml-auto"><BridgeStatusChip state={bridge} /></span></div>
+        <div className="flex items-center gap-2"><span className="font-semibold text-[11.5px] text-foreground">Prompt relay</span><span className="ml-auto"><BridgeStatusChip state={bridge} /></span></div>
         {offline && (
           <div className="rounded-lg border border-error/40 bg-error/10 p-[10px] text-[11px]">
             <div className="font-semibold text-error">Relay offline</div>
-            <div className="text-muted mt-[2px]">The headless bridge session isn't reachable. Prompts are disabled until it reconnects.{'reason' in bridge && bridge.reason ? ` (${bridge.reason})` : ''}</div>
-            <button className="mt-2 h-6 px-2 rounded-md border border-border text-fg" onClick={() => void window.csm.bridgeRetry()}>Retry connection</button>
+            <div className="text-muted-foreground mt-[2px]">The headless bridge session isn't reachable. Prompts are disabled until it reconnects.{'reason' in bridge && bridge.reason ? ` (${bridge.reason})` : ''}</div>
+            <Button variant="outline" size="sm" className="mt-2 h-6" onClick={() => void window.csm.bridgeRetry()}>Retry connection</Button>
           </div>
         )}
         <TargetPicker />
-        <textarea value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKey} disabled={offline}
+        <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKey} disabled={offline}
           placeholder={offline ? 'Prompt input disabled…' : names.length > 1 ? `Message ${names.length} sessions…` : `Message ${names[0] ?? '…'}…`}
-          className="min-h-[64px] max-h-[220px] resize-y rounded-lg bg-bg border border-input px-[11px] py-[9px] text-[12px] leading-[1.5] text-fg placeholder:text-faint outline-none focus:border-input disabled:opacity-60" />
+          className="min-h-[64px] max-h-[220px] resize-y bg-background text-[12px] leading-[1.5]" />
         <div className="flex flex-wrap gap-[5px]">
-          {QUICK_PROMPTS.map((q) => <button key={q.label} disabled={offline} onClick={() => setDraft(q.text)} className="rounded-full border border-border px-[9px] py-[2px] text-[10.5px] font-medium text-muted hover:text-fg disabled:opacity-50">{q.label}</button>)}
+          {QUICK_PROMPTS.map((q) => <button key={q.label} disabled={offline} onClick={() => setDraft(q.text)} className="rounded-full border border-border px-[9px] py-[2px] text-[10.5px] font-medium text-muted-foreground hover:text-foreground disabled:opacity-50">{q.label}</button>)}
         </div>
         {warn && !offline && <div className="text-[10px] text-waiting">⚠ Needs approval in target session</div>}
         <div className="flex items-center gap-[7px]">
-          <button onClick={() => void send()} disabled={!canSend} className={cn('flex-1 h-[30px] rounded-[7px] bg-primary text-primary-fg font-semibold text-[11.5px] flex items-center justify-center gap-2 disabled:opacity-50')}>
-            {names.length > 1 ? `Broadcast to ${names.length} sessions` : 'Send'}<span className="font-mono text-[9.5px] text-primary-fg/70 bg-black/10 rounded px-[5px]">{modKey()}⏎</span>
-          </button>
-          <Popover.Root>
-            <Popover.Trigger aria-label="prompt history" className="h-[30px] w-[30px] rounded-[7px] border border-border text-muted hover:text-fg font-mono text-[11px]">⟲</Popover.Trigger>
-            <Popover.Portal>
-              <Popover.Content align="end" className="w-72 max-h-64 overflow-y-auto rounded-md border border-border bg-panel p-1 text-[11.5px] shadow-xl">
-                {history.length === 0 && <div className="px-2 py-1 text-faint">No prompts sent yet</div>}
-                {history.map((h, i) => <Popover.Close key={i} className="block w-full text-left px-2 py-1 rounded hover:bg-raised truncate" onClick={() => setDraft(h)}>{h}</Popover.Close>)}
-              </Popover.Content>
-            </Popover.Portal>
-          </Popover.Root>
+          <Button onClick={() => void send()} disabled={!canSend} className="flex-1 h-[30px] text-[11.5px] font-semibold gap-2">
+            {names.length > 1 ? `Broadcast to ${names.length} sessions` : 'Send'}<Kbd className="bg-black/10 text-primary-foreground/70">{modKey()}⏎</Kbd>
+          </Button>
+          <Popover>
+            <PopoverTrigger aria-label="prompt history" className="h-[30px] w-[30px] rounded-[7px] border border-border text-muted-foreground hover:text-foreground font-mono text-[11px]">⟲</PopoverTrigger>
+            <PopoverContent align="end" className="w-72 max-h-64 overflow-y-auto p-1 text-[11.5px]">
+              {history.length === 0 && <div className="px-2 py-1 text-faint">No prompts sent yet</div>}
+              {history.map((h, i) => <button key={i} className="block w-full text-left px-2 py-1 rounded hover:bg-secondary truncate" onClick={() => setDraft(h)}>{h}</button>)}
+            </PopoverContent>
+          </Popover>
         </div>
         {last && <div className={cn('text-[10.5px] font-mono', last.ok ? 'text-working' : 'text-error')}>{last.text}</div>}
       </div>
@@ -4457,16 +4634,16 @@ import { hhmm } from '../lib/format'
 
 export function FeedItemRow({ item, onJumpSender, onJumpReceiver, onBookmark }: { item: FeedItem; onJumpSender?: () => void; onJumpReceiver?: () => void; onBookmark: () => void }) {
   return (
-    <div className="rounded-lg border border-border bg-panel/60 p-3">
+    <div className="rounded-lg border border-border bg-card/60 p-3">
       <div className="flex items-baseline gap-2 font-mono text-[10px]">
         <span className="text-cross">{item.from} → {item.to.join(', ')}</span>
         <span className="ml-auto text-faint">{hhmm(item.ts)}</span>
       </div>
-      <div className="text-[12px] leading-[1.5] text-fg-soft mt-1 whitespace-pre-wrap">{item.text}</div>
+      <div className="text-[12px] leading-[1.5] text-body mt-1 whitespace-pre-wrap">{item.text}</div>
       <div className="flex gap-3 mt-[6px] text-[10px] text-faint">
-        {onJumpSender && <button className="hover:text-fg" onClick={onJumpSender}>Open in sender ↗</button>}
-        {onJumpReceiver && <button className="hover:text-fg" onClick={onJumpReceiver}>Open in receiver ↗</button>}
-        <button className="hover:text-fg" onClick={onBookmark}>Bookmark</button>
+        {onJumpSender && <button className="hover:text-foreground" onClick={onJumpSender}>Open in sender ↗</button>}
+        {onJumpReceiver && <button className="hover:text-foreground" onClick={onJumpReceiver}>Open in receiver ↗</button>}
+        <button className="hover:text-foreground" onClick={onBookmark}>Bookmark</button>
         {item.viaBridge && <span className="ml-auto text-cross/70">broadcast · relayed via bridge</span>}
       </div>
     </div>
@@ -4487,16 +4664,16 @@ export function FeedMini() {
   return (
     <div className="px-3 py-[10px] flex flex-col gap-[7px] h-full min-h-0">
       <div className="flex items-baseline gap-2">
-        <span className="font-semibold text-[11.5px] text-fg">Cross-session feed</span>
-        <button className="ml-auto text-[10px] text-muted hover:text-fg" onClick={() => setView('feed')}>Open tab ↗</button>
+        <span className="font-semibold text-[11.5px] text-foreground">Cross-session feed</span>
+        <button className="ml-auto text-[10px] text-muted-foreground hover:text-foreground" onClick={() => setView('feed')}>Open tab ↗</button>
       </div>
       <div className="flex flex-col gap-[5px] overflow-y-auto">
         {top.length === 0 && <div className="text-[10.5px] text-faint">No cross-session messages yet</div>}
         {top.map((i) => (
           <button key={i.id} onClick={() => { const target = i.receiverSessionIds[0] ?? i.senderSessionId; if (target) jump({ sessionId: target, ts: i.ts }) }}
-            className="text-left rounded-[7px] bg-bg border border-border/80 px-[9px] py-[7px] hover:border-input">
+            className="text-left rounded-[7px] bg-background border border-border/80 px-[9px] py-[7px] hover:border-input">
             <div className="flex gap-[6px] font-mono text-[9.5px] text-cross"><span className="truncate">{i.from} → {i.to.join(', ')}</span><span className="ml-auto text-faint">{hhmm(i.ts)}</span></div>
-            <div className="text-[11px] text-muted mt-[2px] truncate">{firstLine(i.text, 60)}</div>
+            <div className="text-[11px] text-muted-foreground mt-[2px] truncate">{firstLine(i.text, 60)}</div>
           </button>
         ))}
       </div>
@@ -4508,7 +4685,8 @@ export function FeedMini() {
 `src/renderer/src/components/FeedTab.tsx`:
 ```tsx
 import { useMemo, useState } from 'react'
-import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { Empty, EmptyDescription, EmptyTitle } from '@/components/ui/empty'
 import type { FeedItem } from '@shared/types'
 import { useStore } from '../store'
 import { cn, firstLine } from '../lib/format'
@@ -4545,23 +4723,26 @@ export function FeedTab() {
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       <div className="h-[50px] shrink-0 border-b border-border flex items-center gap-3 px-[18px]">
-        <span className="font-semibold text-[14px] text-fg">Inter-session feed</span>
+        <span className="font-semibold text-[14px] text-foreground">Inter-session feed</span>
         <div className="ml-auto flex gap-[6px] text-[11px]">
-          <button onClick={() => setMode('cross')} className={cn('h-6 px-[9px] rounded-md border', mode === 'cross' ? 'bg-raised border-transparent text-fg' : 'border-border text-muted hover:text-fg')}>Cross-session only</button>
-          <button onClick={() => setMode('all')} className={cn('h-6 px-[9px] rounded-md border', mode === 'all' ? 'bg-raised border-transparent text-fg' : 'border-border text-muted hover:text-fg')}>All activity</button>
-          <DropdownMenu.Root>
-            <DropdownMenu.Trigger className="h-6 px-[9px] rounded-md border border-border text-muted hover:text-fg">{session ? sessions[session]?.name : 'Session'} ▾</DropdownMenu.Trigger>
-            <DropdownMenu.Portal>
-              <DropdownMenu.Content align="end" className="min-w-[200px] rounded-md border border-border bg-panel p-1 text-[11.5px] shadow-xl">
-                <DropdownMenu.Item className="px-2 py-1 rounded hover:bg-raised outline-none" onSelect={() => setSession(undefined)}>All sessions</DropdownMenu.Item>
-                {Object.values(sessions).map((s) => <DropdownMenu.Item key={s.sessionId} className="px-2 py-1 rounded hover:bg-raised outline-none" onSelect={() => setSession(s.sessionId)}>{s.name}</DropdownMenu.Item>)}
-              </DropdownMenu.Content>
-            </DropdownMenu.Portal>
-          </DropdownMenu.Root>
+          <button onClick={() => setMode('cross')} className={cn('h-6 px-[9px] rounded-md border', mode === 'cross' ? 'bg-secondary border-transparent text-foreground' : 'border-border text-muted-foreground hover:text-foreground')}>Cross-session only</button>
+          <button onClick={() => setMode('all')} className={cn('h-6 px-[9px] rounded-md border', mode === 'all' ? 'bg-secondary border-transparent text-foreground' : 'border-border text-muted-foreground hover:text-foreground')}>All activity</button>
+          <DropdownMenu>
+            <DropdownMenuTrigger className="h-6 px-[9px] rounded-md border border-border text-muted-foreground hover:text-foreground">{session ? sessions[session]?.name : 'Session'} ▾</DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-[200px] text-[11.5px]">
+              <DropdownMenuItem onSelect={() => setSession(undefined)}>All sessions</DropdownMenuItem>
+              {Object.values(sessions).map((s) => <DropdownMenuItem key={s.sessionId} onSelect={() => setSession(s.sessionId)}>{s.name}</DropdownMenuItem>)}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto px-[18px] py-3 flex flex-col gap-3">
-        {groups.length === 0 && <div className="text-faint text-[12px] mt-8 self-center">No messages between sessions yet</div>}
+        {groups.length === 0 && (
+          <Empty className="mt-8">
+            <EmptyTitle>No messages between sessions yet</EmptyTitle>
+            <EmptyDescription>When one session messages another — or you relay a prompt — it appears here.</EmptyDescription>
+          </Empty>
+        )}
         {groups.map((g) => (
           <div key={g.day} className="flex flex-col gap-2">
             <div className="font-mono font-semibold text-[9.5px] tracking-[.1em] text-faint">{g.day}</div>
@@ -4593,16 +4774,16 @@ export function HistoryTab() {
   const setView = useStore((s) => s.setView)
   return (
     <div className="flex-1 min-h-0 flex flex-col">
-      <div className="h-[50px] shrink-0 border-b border-border flex items-center px-[18px]"><span className="font-semibold text-[14px] text-fg">History</span></div>
+      <div className="h-[50px] shrink-0 border-b border-border flex items-center px-[18px]"><span className="font-semibold text-[14px] text-foreground">History</span></div>
       <div className="flex-1 min-h-0 overflow-y-auto px-[18px] py-3 grid grid-cols-2 gap-6">
         <div className="flex flex-col gap-2">
           <div className="font-mono font-semibold text-[9.5px] tracking-[.1em] text-faint">BOOKMARKS</div>
           {bookmarks.length === 0 && <div className="text-[11px] text-faint">Right-click any message → Bookmark</div>}
           {bookmarks.map((b) => (
             <button key={`${b.sessionId}-${b.eventId}`} onClick={() => jump({ sessionId: b.sessionId, eventId: b.eventId, ts: b.ts })}
-              className="text-left rounded-lg border border-border bg-panel/60 p-2 hover:border-input">
+              className="text-left rounded-lg border border-border bg-card/60 p-2 hover:border-input">
               <div className="font-mono text-[9.5px] text-faint">{sessions[b.sessionId]?.name ?? b.sessionId.slice(0, 8)} · {hhmm(b.ts)}</div>
-              <div className="text-[11.5px] text-fg-soft mt-[2px] truncate">{b.preview}</div>
+              <div className="text-[11.5px] text-body mt-[2px] truncate">{b.preview}</div>
             </button>
           ))}
         </div>
@@ -4610,7 +4791,7 @@ export function HistoryTab() {
           <div className="font-mono font-semibold text-[9.5px] tracking-[.1em] text-faint">PROMPTS SENT</div>
           {history.length === 0 && <div className="text-[11px] text-faint">Prompts you relay appear here</div>}
           {history.map((h, i) => (
-            <button key={i} onClick={() => { setDraft(h); setView('sessions') }} className="text-left rounded-lg border border-border bg-panel/60 p-2 hover:border-input text-[11.5px] text-fg-soft truncate">{h}</button>
+            <button key={i} onClick={() => { setDraft(h); setView('sessions') }} className="text-left rounded-lg border border-border bg-card/60 p-2 hover:border-input text-[11.5px] text-body truncate">{h}</button>
           ))}
         </div>
       </div>
@@ -4627,7 +4808,7 @@ In `App.tsx` make `#center` switch on the view:
 ```tsx
 const view = useStore((s) => s.view)
 …
-<main id="center" className="flex-1 min-w-0 flex flex-col bg-bg">
+<main id="center" className="flex-1 min-w-0 flex flex-col bg-background">
   {view === 'sessions' && <><SessionHeader /><Transcript /></>}
   {view === 'feed' && <FeedTab />}
   {view === 'history' && <HistoryTab />}
@@ -4735,12 +4916,15 @@ describe('StatusBar', () => {
 Run: `npx vitest run tests/renderer/chrome.test.tsx`
 Expected: FAIL — modules not found.
 
+Note for Step 3: `CommandDialog` renders through a Radix portal, so the overlay's input and items land in `document.body`, not inside the container `render()` returns. Testing Library's `screen` queries the whole document, so the assertions above work unchanged; the "renders nothing when closed" test asserts on the returned container and passes because the component returns `null` while closed.
+
 - [ ] **Step 3: Write the components**
 
 `src/renderer/src/components/TitleBar.tsx`:
 ```tsx
+import { Kbd } from '@/components/ui/kbd'
 import { useStore, type View } from '../store'
-import { cn, isMac, modKey } from '../lib/format'
+import { cn, isMac } from '../lib/format'
 
 const VIEWS: { id: View; label: string }[] = [{ id: 'sessions', label: 'Sessions' }, { id: 'feed', label: 'Feed' }, { id: 'history', label: 'History' }]
 
@@ -4750,27 +4934,27 @@ export function TitleBar() {
   const setSearchOpen = useStore((s) => s.setSearchOpen)
   const mac = isMac()
   return (
-    <div className={cn('h-10 shrink-0 flex items-center gap-3 px-[14px] border-b border-border bg-panel drag', mac && 'pl-[86px]')}>
+    <div className={cn('h-10 shrink-0 flex items-center gap-3 px-[14px] border-b border-border bg-card drag', mac && 'pl-[86px]')}>
       {!mac && <span className="text-claude text-[13px] no-drag">✳</span>}
-      <div className="font-semibold text-[12.5px] text-fg">Claude Session Monitor</div>
+      <div className="font-semibold text-[12.5px] text-foreground">Claude Session Monitor</div>
       <div className="flex-1 flex justify-center no-drag">
-        <button onClick={() => setSearchOpen(true)} className="flex items-center gap-2 w-[340px] h-[26px] rounded-md bg-bg border border-input px-[10px] text-left">
-          <span className="text-muted text-[11px]">⌕</span>
-          <span className="text-[12px] text-muted">Search all sessions…</span>
-          <span className="ml-auto font-mono text-[10px] text-faint border border-border rounded px-1">{mac ? '⌘K' : 'Ctrl+K'}</span>
+        <button onClick={() => setSearchOpen(true)} className="flex items-center gap-2 w-[340px] h-[26px] rounded-md bg-background border border-input px-[10px] text-left">
+          <span className="text-muted-foreground text-[11px]">⌕</span>
+          <span className="text-[12px] text-muted-foreground">Search all sessions…</span>
+          <Kbd className="ml-auto">{mac ? '⌘K' : 'Ctrl+K'}</Kbd>
         </button>
       </div>
       <div className="flex gap-[6px] no-drag">
         {VIEWS.map((v) => (
           <button key={v.id} onClick={() => setView(v.id)}
-            className={cn('h-[26px] px-[10px] rounded-md font-medium text-[11.5px]', view === v.id ? 'bg-raised text-fg' : 'border border-border text-muted hover:text-fg')}>{v.label}</button>
+            className={cn('h-[26px] px-[10px] rounded-md font-medium text-[11.5px]', view === v.id ? 'bg-secondary text-foreground' : 'border border-border text-muted-foreground hover:text-foreground')}>{v.label}</button>
         ))}
       </div>
       {!mac && (
         <div className="flex ml-2 no-drag">
-          <button aria-label="minimize" onClick={() => window.csm.windowControl('minimize')} className="w-11 h-10 -my-[1px] text-muted hover:bg-white/10">─</button>
-          <button aria-label="maximize" onClick={() => window.csm.windowControl('maximize')} className="w-11 h-10 -my-[1px] text-muted hover:bg-white/10">▢</button>
-          <button aria-label="close" onClick={() => window.csm.windowControl('close')} className="w-11 h-10 -my-[1px] text-muted hover:bg-[#e81123] hover:text-white">✕</button>
+          <button aria-label="minimize" onClick={() => window.csm.windowControl('minimize')} className="w-11 h-10 -my-[1px] text-muted-foreground hover:bg-white/10">─</button>
+          <button aria-label="maximize" onClick={() => window.csm.windowControl('maximize')} className="w-11 h-10 -my-[1px] text-muted-foreground hover:bg-white/10">▢</button>
+          <button aria-label="close" onClick={() => window.csm.windowControl('close')} className="w-11 h-10 -my-[1px] text-muted-foreground hover:bg-[#e81123] hover:text-white">✕</button>
         </div>
       )}
     </div>
@@ -4780,8 +4964,9 @@ export function TitleBar() {
 
 `src/renderer/src/components/SearchOverlay.tsx`:
 ```tsx
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { SearchHit } from '@shared/types'
+import { CommandDialog, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import { useStore } from '../store'
 import { hhmm } from '../lib/format'
 
@@ -4791,9 +4976,8 @@ export function SearchOverlay() {
   const jump = useStore((s) => s.jump)
   const [q, setQ] = useState('')
   const [hits, setHits] = useState<SearchHit[]>([])
-  const input = useRef<HTMLInputElement>(null)
 
-  useEffect(() => { if (open) { setQ(''); setHits([]); setTimeout(() => input.current?.focus(), 0) } }, [open])
+  useEffect(() => { if (open) { setQ(''); setHits([]) } }, [open])
   useEffect(() => {
     if (!open) return
     const t = setTimeout(() => { if (q.trim()) void window.csm.search(q.trim()).then(setHits); else setHits([]) }, 120)
@@ -4802,22 +4986,21 @@ export function SearchOverlay() {
 
   if (!open) return null
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-start justify-center pt-24" onClick={() => setOpen(false)}>
-      <div className="w-[640px] max-h-[60vh] flex flex-col rounded-xl border border-border bg-panel shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
-        <input ref={input} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false) }}
-          placeholder="Search all sessions…" className="h-12 px-4 bg-transparent outline-none text-[13px] text-fg placeholder:text-muted border-b border-border" />
-        <div className="flex-1 overflow-y-auto p-1">
-          {q.trim() && hits.length === 0 && <div className="px-3 py-4 text-[11.5px] text-faint">No matches</div>}
-          {hits.map((h) => (
-            <button key={`${h.sessionId}-${h.eventId}`} onClick={() => jump({ sessionId: h.sessionId, eventId: h.eventId, ts: h.ts })}
-              className="w-full text-left px-3 py-2 rounded-lg hover:bg-raised">
-              <div className="font-mono text-[9.5px] text-faint">{h.sessionName} · {hhmm(h.ts)}</div>
-              <div className="text-[12px] text-fg-soft truncate">{h.snippet}</div>
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
+    <CommandDialog open={open} onOpenChange={setOpen} title="Search all sessions" description="Search every transcript" className="max-w-[640px]"
+      // main-process search already ranks by recency; cmdk must not re-filter or re-order
+      shouldFilter={false}>
+      <CommandInput value={q} onValueChange={setQ} placeholder="Search all sessions…" />
+      <CommandList className="max-h-[50vh]">
+        {q.trim() !== '' && hits.length === 0 && <CommandEmpty>No matches</CommandEmpty>}
+        {hits.map((h) => (
+          <CommandItem key={`${h.sessionId}-${h.eventId}`} value={`${h.sessionId}-${h.eventId}`} onSelect={() => jump({ sessionId: h.sessionId, eventId: h.eventId, ts: h.ts })}
+            className="flex-col items-start gap-0">
+            <div className="font-mono text-[9.5px] text-faint">{h.sessionName} · {hhmm(h.ts)}</div>
+            <div className="text-[12px] text-body truncate w-full">{h.snippet}</div>
+          </CommandItem>
+        ))}
+      </CommandList>
+    </CommandDialog>
   )
 }
 ```
@@ -4839,7 +5022,7 @@ export function StatusBar() {
     <span className="inline-flex items-center gap-[5px]"><span className="w-[6px] h-[6px] rounded-full" style={{ background: color }} />{n} {label}</span>
   )
   return (
-    <div className="h-7 shrink-0 border-t border-border bg-panel flex items-center gap-[14px] px-[14px] font-mono text-[10.5px] text-muted">
+    <div className="h-7 shrink-0 border-t border-border bg-card flex items-center gap-[14px] px-[14px] font-mono text-[10.5px] text-muted-foreground">
       {item(stats.working, 'working', STATE_COLOR.working)}
       {item(stats.waiting, 'waiting', STATE_COLOR.waiting)}
       {item(stats.idle, 'idle', STATE_COLOR.idle)}
@@ -4847,8 +5030,8 @@ export function StatusBar() {
       <span className="ml-auto">refreshed {relTime(stats.refreshedAt)}</span>
       <span className={cn(BRIDGE_COLOR[bridge.status])}>bridge ●</span>
       {!isMac() && <span className="text-faint">Ctrl+⏎ to send</span>}
-      <button className="hover:text-fg" onClick={() => void window.csm.openLogs()}>logs</button>
-      <button className="hover:text-fg" onClick={() => void window.csm.reload()}>reload</button>
+      <button className="hover:text-foreground" onClick={() => void window.csm.openLogs()}>logs</button>
+      <button className="hover:text-foreground" onClick={() => void window.csm.reload()}>reload</button>
     </div>
   )
 }
@@ -4897,18 +5080,18 @@ export default function App() {
   const view = useStore((s) => s.view)
   useHotkeys()
   useEffect(() => { void init() }, [init])
-  if (!ready) return <div className="h-full flex items-center justify-center text-muted">Loading sessions…</div>
+  if (!ready) return <div className="h-full flex items-center justify-center text-muted-foreground">Loading sessions…</div>
   return (
-    <div className="h-full flex flex-col bg-bg">
+    <div className="h-full flex flex-col bg-background">
       <TitleBar />
       <div className="flex-1 min-h-0 flex">
-        <aside className={cn('w-[236px] shrink-0 border-r border-border flex flex-col', isMac() ? 'bg-panel' : 'bg-bg')}><Sidebar /></aside>
-        <main className="flex-1 min-w-0 flex flex-col bg-bg">
+        <aside className={cn('w-[236px] shrink-0 border-r border-border flex flex-col', isMac() ? 'bg-card' : 'bg-background')}><Sidebar /></aside>
+        <main className="flex-1 min-w-0 flex flex-col bg-background">
           {view === 'sessions' && <><SessionHeader /><Transcript /></>}
           {view === 'feed' && <FeedTab />}
           {view === 'history' && <HistoryTab />}
         </main>
-        <aside className="w-[292px] shrink-0 border-l border-border bg-panel flex flex-col"><RelayPanel /></aside>
+        <aside className="w-[292px] shrink-0 border-l border-border bg-card flex flex-col"><RelayPanel /></aside>
       </div>
       <StatusBar />
       <SearchOverlay />

@@ -32,7 +32,31 @@ These were checked on 2026-08-26 and are the contract the app is built against. 
 
 ## 3. Architecture
 
-Electron (electron-vite) · React 19 · TypeScript · Tailwind v4 · shadcn/ui (dark tokens as in the design) · Vitest.
+Electron (electron-vite) · React 19 · TypeScript · Tailwind v4 · shadcn/ui **vendored from the local `ui-main` checkout** · Vitest.
+
+### 3.0 Design-system source — `/Users/iskandarov/Downloads/ui-main`
+
+The shadcn/ui v4 monorepo is checked out locally and is the authority for tokens and primitives. Two facts verified in it on 2026-08-26:
+
+1. **The design's colors are shadcn's `.dark` block verbatim** (`apps/v4/app/globals.css`). Every oklch value in Claude Design option 2a maps to an existing shadcn variable — so the app adopts shadcn's *variable names* rather than inventing its own, and any component copied from the registry works unmodified:
+
+| Design 2a value | shadcn variable | Used for |
+|---|---|---|
+| `oklch(0.145 0 0)` | `--background` | window body, inputs, transcript |
+| `oklch(0.205 0 0)` | `--card` / `--popover` / `--sidebar` | sidebar, relay panel, title/status bars |
+| `oklch(0.269 0 0)` | `--secondary` / `--muted` | selected row, user bubble |
+| `oklch(0.985 0 0)` | `--foreground` | primary text |
+| `oklch(0.708 0 0)` | `--muted-foreground` | secondary text |
+| `oklch(1 0 0 / 10%)` | `--border` | every divider |
+| `oklch(1 0 0 / 15%)` | `--input` | input outlines |
+| `oklch(0.922 0 0)` on `oklch(0.205 0 0)` | `--primary` / `--primary-foreground` | Send button |
+| `oklch(0.2 0 0)` | `--surface` | code blocks |
+
+   Three values in the design have no shadcn equivalent and are added as app tokens: `--body: oklch(0.87 0 0)` (Claude's message text), `--faint: oklch(0.556 0 0)` (timestamps, labels), and the state accents `--working #34d399`, `--waiting #fbbf24`, `--ended #60a5fa`, `--error #f87171`, `--cross #a78bfa` / `--cross-fg #c4b5fd`, `--claude #d97757`.
+
+2. **Primitives are vendored by file copy**, not by CLI or network. Source: `apps/v4/registry/new-york-v4/ui/*.tsx` (plus `lib/utils.ts`, whose `cn` is byte-identical to what this app needs). v4 imports the **unified `radix-ui` package** (`import { Popover as PopoverPrimitive } from "radix-ui"`), not `@radix-ui/react-*` — so the app depends on `radix-ui@^1.4.3`, `cmdk@^1.1.1`, `class-variance-authority`, `lucide-react`.
+
+   Components taken: `button`, `input`, `textarea`, `dropdown-menu`, `popover`, `context-menu`, `command`, `separator`, `scroll-area`, `tooltip`, `kbd`, `empty`, `badge`. `command` backs the ⌘K overlay; `kbd` renders the ⌘⏎ hints; `empty` renders the no-sessions / no-messages states.
 
 ```
 ┌──────────────── main process (Node) ────────────────┐
@@ -209,7 +233,7 @@ All payloads are the shared types; preload exposes a typed `window.csm` object o
 
 ## 7. UI (renderer)
 
-Layout and tokens follow design **2a** exactly (1360×~700 reference; fully responsive down to 1100 px — sidebar 236 px, relay panel 292 px, center flexes). Dark only in v1. Fonts: Geist / Geist Mono (bundled locally, not fetched).
+Layout and tokens follow design **2a** exactly (1360×~700 reference; fully responsive down to 1100 px — sidebar 236 px, relay panel 292 px, center flexes). Dark only in v1, using the shadcn variable names from §3.0. Fonts: Geist / Geist Mono (bundled locally, not fetched).
 
 | Region | Component | Design ref | Notes |
 |---|---|---|---|
